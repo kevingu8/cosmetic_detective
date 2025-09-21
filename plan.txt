@@ -1,6 +1,6 @@
-Week 0 (½–1 week): foundations & decisions
+    Week 0 (½–1 week): foundations & decisions
 
-Objectives
+Objectives:
 
 Lock the stack: Expo/React Native (iOS+Android), Firebase (Auth/Firestore/Storage/Cloud Functions), Next.js reviewer console.
 
@@ -8,7 +8,7 @@ Create three environments: dev, staging, prod.
 
 Define the V1 data model (users, tickets, results, messages) and ticket lifecycle (submitted → in_review → resolved / need_more_info / rejected).
 
-Tasks
+Tasks:
 
 Set up repos (mobile / web console / cloud) and CI builds.
 
@@ -18,21 +18,22 @@ Draft Firestore indexes you’ll likely need (status, assignedReviewerId, create
 
 Write “Definition of Done” for MVP (see bottom).
 
-Deliverables
+Deliverables:
 
 System diagram, data dictionary, lifecycle state machine.
 
 Issue tracker with epics: Mobile, Backend, Reviewer Console, Ops.
 
-Week 1: mobile UX with mocked data (prove the flow)
 
-Objectives
+    Week 1: mobile UX with mocked data (prove the flow)
+
+Objectives:
 
 You can navigate: Login → New Ticket → Upload screen (dummy) → Ticket List → Ticket Detail (status timeline).
 
 Validate 维鉴-style UX before wiring real backend.
 
-Tasks
+Tasks:
 
 Design low-fi wireframes for 6 screens: Onboarding/Login, Home, New Ticket, Upload, Ticket List, Ticket Detail.
 
@@ -42,17 +43,18 @@ Add form validation, loading/empty/error states.
 
 Instrument basic analytics events (screen views, tap flows).
 
-Acceptance
+Acceptance:
 
 You can “submit” a ticket (mocked), see it in the list, open detail, and watch a simulated status change.
 
-Week 2: real backend for core objects (auth, storage, CRUD)
 
-Objectives
+    Week 2: real backend for core objects (auth, storage, CRUD)
+
+Objectives:
 
 Real sign-in, real ticket creation, real image uploads (compressed), secure reads/writes.
 
-Tasks
+Tasks:
 
 Enable Auth providers (pick 1–2 for MVP: Email/Apple/Google).
 
@@ -64,14 +66,13 @@ Add realtime listeners for user’s ticket list and detail.
 
 Write a tiny Cloud Function to stamp audit fields and normalize status on create.
 
-Acceptance
+Acceptance:
 
 From device/simulator, you sign in, create a ticket with 1–5 images, and see it in your list; data is present in Firestore/Storage; rules block cross-user access.
 
-Week 3: reviewer console (web) + assignment flow
+    Week 3: reviewer console (web) + assignment flow
 
-Objectives
-
+Objectives:
 A single-operator console to process tickets end-to-end.
 
 Tasks
@@ -86,17 +87,16 @@ Verdict form (authentic / inauthentic / undetermined) with rationale.
 
 Write result to results (or tickets/{id}/result) and flip ticket status to resolved.
 
-Acceptance
+Acceptance:
 
 You can submit a ticket from the app, claim it on the console, publish a verdict, and see the result reflected on the phone.
 
-Week 4: chat, notifications, and SLAs
+    Week 4: chat, notifications, and SLAs
 
-Objectives
-
+Objectives:
 Two-way messaging for clarifications; push notifications for key events; basic SLA handling.
 
-Tasks
+Tasks:
 
 Messages subcollection with realtime updates; simple chat UI on both sides.
 
@@ -104,17 +104,17 @@ Push notifications: save device tokens; send on assignment, message, verdict.
 
 SLA helpers: compute slaAt on create; highlight overdue in console; auto-nudge function.
 
-Acceptance
+Acceptance:
 
 Reviewer sends a message; user receives a push and sees it in-app; user replies; reviewer is notified. Tickets overdue past SLA are visible.
 
-Week 5: polish, compliance, and beta build
 
-Objectives
+    Week 5: polish, compliance, and beta build
 
+Objectives:
 Hardening for test distribution; store-compliant content; internal testers on both platforms.
 
-Tasks
+Tasks:
 
 Error handling (network loss, large photos), retryable uploads, image size caps.
 
@@ -126,6 +126,6 @@ App metadata drafts (screenshots, descriptions).
 
 Build to TestFlight + Play internal testing tracks; invite 3–5 trusted testers.
 
-Acceptance
+Acceptance:
 
 Testers can install, submit, get a human verdict within your target turnaround, and report no P0 blockers.

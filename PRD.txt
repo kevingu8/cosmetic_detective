@@ -1,0 +1,114 @@
+Product Requirements Document (PRD)
+
+Project: Cosmetic Detective (维鉴-style authenticity verification)
+Owner: Kevin Gu
+Version: Draft v0.1 (Week-0)
+
+1. Problem Statement
+
+Cosmetic buyers often doubt the authenticity of their purchases, especially from online and cross-border markets. Current solutions (forums, vague guides, vendor promises) are inconsistent and unreliable. Users want a fast, trustworthy, mobile-first way to verify authenticity with human expertise.
+
+2. Users & Roles
+
+End Users (Consumers): upload photos of cosmetics, submit tickets, receive verified results.
+
+Reviewers (Part-time Workers): claim tickets, inspect photos, provide verdicts and rationale, chat with users if clarification is needed.
+
+Admins: manage assignments, monitor SLAs, resolve disputes, and oversee reviewer performance.
+
+3. Core Job-to-Be-Done
+
+“When I’m unsure if a cosmetic is genuine, I want to upload photos and receive a clear, human-verified answer quickly, so I can shop with confidence.”
+
+4. Features (MoSCoW Prioritization)
+Must-Have (MVP)
+
+User authentication (login/logout).
+
+Submit ticket: upload 1–5 photos + brand/category/notes.
+
+Ticket list & detail view with live status timeline.
+
+Reviewer console: claim ticket, view photos, provide verdict, submit result.
+
+Result delivery to user (authentic / inauthentic / undetermined + rationale).
+
+Basic chat between user and reviewer.
+
+Push notifications for status changes.
+
+Secure storage and access control (users only see their tickets).
+
+Should-Have (Post-MVP)
+
+SLA timers and auto-reassign for idle tickets.
+
+Reviewer canned responses/templates.
+
+Admin dashboard (metrics, throughput).
+
+Could-Have (Later Versions)
+
+Payments (credits, per-ticket, or subscriptions).
+
+AI assistance (OCR brand/model hints, quality checks).
+
+Multi-language support (Chinese/English), dark mode.
+
+Won’t-Have (Out of Scope Now)
+
+Social features (sharing, likes, comments).
+
+Automated AI verdicts replacing humans.
+
+Offline ticket submission.
+
+5. Success Metrics
+
+Operational
+
+Median time from submit → first reviewer claim ≤ 10 minutes.
+
+Median turnaround (submit → verdict) ≤ 1 hour.
+
+User
+
+≥ 80% of users submit ≥ 2 tickets in first month.
+
+Average user satisfaction ≥ 4.3★ in beta feedback.
+
+Quality
+
+≤ 10% of tickets marked “undetermined.”
+
+Reviewer agreement rate ≥ 90% (if double-reviewed).
+
+6. Non-Functional Requirements
+
+Privacy & Security: photos stored privately, never public URLs; strong access rules.
+
+Performance: upload 3 photos < 10s on Wi-Fi, < 30s on 4G.
+
+Accessibility: high-contrast text, readable font sizes.
+
+Scalability: system can support 10 → 100+ reviewers without redesign.
+
+Cost Efficiency: Firebase usage < $100/month during MVP.
+
+7. Tone & Localization
+
+Language: MVP in English, add Simplified Chinese in V2.
+
+Tone: professional but reassuring (“Your ticket is under review”).
+
+8. Deliverables (Week-0 Track A)
+
+✅ This PRD document.
+
+✅ Feature prioritization table.
+
+✅ Success metrics defined.
+
+✅ Non-functional needs documented.
+
+✅ Language/tone decision.

@@ -1,0 +1,27 @@
+Frontend (mobile app)
+
+Expo / React Native (TypeScript) → single codebase for iOS + Android.
+
+Uses Firebase SDKs for auth, Firestore, Storage, Messaging.
+
+Reviewer Console (web)
+
+Next.js (TypeScript) → hosted on Vercel for speed.
+
+Connects to Firebase via web SDK + Admin SDK for reviewer/admin roles.
+
+Backend / Cloud
+
+Firebase (serverless backbone):
+
+Auth (user, reviewer, admin roles).
+
+Firestore (tickets, results, messages).
+
+Storage (cosmetic photos).
+
+Cloud Functions (trigger-based automations: SLA timers, notifications).
+
+Cloud Messaging (push notifications).
+
+Optional later: Stripe integration (payments).
