@@ -1,0 +1,72 @@
+# --------------------
+# Python / FastAPI
+# --------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.eggs/
+dist/
+build/
+*.db
+.env
+venv/
+ENV/
+.venv/
+
+# SQLite database
+app.db
+
+# --------------------
+# Node / React Native / Expo
+# --------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+.expo/
+.expo-shared/
+.expo/*
+dist/
+coverage/
+*.tgz
+
+# Metro bundler cache
+.expo/web/cache
+.cache/
+*.packager
+*.tmp
+
+# iOS
+ios/build/
+ios/Pods/
+ios/Podfile.lock
+*.xcworkspace
+*.xcuserstate
+*.xcuserdatad
+*.xcscmblueprint
+DerivedData/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+
+# Android
+android/.gradle/
+android/app/build/
+*.iml
+.gradle/
+local.properties
+*.apk
+*.aar
+
+# --------------------
+# macOS / System
+# --------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

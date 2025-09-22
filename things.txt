@@ -1,1 +1,9 @@
-0e4b3513-790b-42c8-81b1-d07e0bbe8b85
+run backend api: 
+cd /Users/kev/Desktop/cosmetic_detective/api
+source venv/bin/activate
+uvicorn main:app --reload --port 8000
+
+
+run mobile app: 
+cd /Users/kev/Desktop/cosmetic_detective/mobile
+npm start
