@@ -4,11 +4,12 @@ from datetime import datetime
 from typing import List, Optional, Literal
 
 import boto3
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Query
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Query, Security
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field
 from sqlalchemy import (
-    create_engine, Column, String, DateTime, Text, Integer, ForeignKey, Boolean
+    create_engine, Column, String, DateTime, Text, Integer, ForeignKey
 )
 from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship
 
@@ -19,11 +20,27 @@ app = FastAPI(title="Cosmetic Detective API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:19006", "http://localhost:3000", "http://127.0.0.1:3000", "http://127.0.0.1:19006", "*"],  # tighten later
+    allow_origins=[
+        "http://localhost:19006",
+        "http://127.0.0.1:19006",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],  # tighten further in prod
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------
+# Simple API-key auth (Day 5 placeholder)
+# ---------------------------
+API_KEY = "supersecret123"  # TODO: move to env var
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+def get_api_key(api_key_header_value: str = Security(api_key_header)):
+    if api_key_header_value != API_KEY:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return api_key_header_value
 
 # ---------------------------
 # MinIO / S3 client setup
@@ -48,7 +65,7 @@ Base = declarative_base()
 class Ticket(Base):
     __tablename__ = "tickets"
     id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, index=True, nullable=True)  # filled later when auth is wired
+    user_id = Column(String, index=True, nullable=True)
     brand = Column(String, nullable=False)
     category = Column(String, nullable=False)
     notes = Column(Text, nullable=True)
@@ -105,19 +122,19 @@ ALLOWED_TRANSITIONS = {
     "submitted": {"in_review", "rejected", "need_more_info"},
     "in_review": {"resolved", "rejected", "need_more_info"},
     "need_more_info": {"in_review", "rejected"},
-    "rejected": set(),   # terminal
-    "resolved": set(),   # terminal
+    "rejected": set(),
+    "resolved": set(),
 }
 
 class TicketOut(BaseModel):
-    ticket_id: str = Field(alias="id")
-    user_id: Optional[str] = None
-    brand: str
-    category: str
-    notes: Optional[str] = ""
-    images: List[str]
-    status: StatusType
-    assigned_reviewer_id: Optional[str] = None
+    ticket_id: str = Field(alias="id", example="c2af7fdc-62af-478c-9cc2-9081ea515afb")
+    user_id: Optional[str] = Field(None, example="kev")
+    brand: str = Field(..., example="Dior")
+    category: str = Field(..., example="lipstick")
+    notes: Optional[str] = Field("", example="Purchased in HK duty free")
+    images: List[str] = Field(default_factory=list, example=["http://127.0.0.1:9000/tickets/<id>/1.jpeg"])
+    status: StatusType = Field(..., example="submitted")
+    assigned_reviewer_id: Optional[str] = Field(None, example="rev_001")
     claimed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -125,22 +142,22 @@ class TicketOut(BaseModel):
         populate_by_name = True
 
 class ResultOut(BaseModel):
-    ticket_id: str
-    verdict: VerdictType
-    rationale: Optional[str] = ""
-    reviewer_id: Optional[str] = None
+    ticket_id: str = Field(..., example="c2af7fdc-62af-478c-9cc2-9081ea515afb")
+    verdict: VerdictType = Field(..., example="authentic")
+    rationale: Optional[str] = Field("", example="Packaging & batch code match")
+    reviewer_id: Optional[str] = Field(None, example="rev_001")
     reviewed_at: datetime
 
 class StatusUpdateIn(BaseModel):
-    status: StatusType
+    status: StatusType = Field(..., example="in_review")
 
 class ResultIn(BaseModel):
-    verdict: VerdictType
-    rationale: Optional[str] = ""
-    reviewer_id: Optional[str] = None
+    verdict: VerdictType = Field(..., example="authentic")
+    rationale: Optional[str] = Field("", example="Hologram and font spacing are correct")
+    reviewer_id: Optional[str] = Field(None, example="rev_001")
 
 class ClaimIn(BaseModel):
-    reviewer_id: str
+    reviewer_id: str = Field(..., example="rev_001")
 
 class EventOut(BaseModel):
     id: int
@@ -295,7 +312,7 @@ def list_tickets(
     return items
 
 # ---------------------------
-# POST /tickets/{id}/claim
+# POST /tickets/{id}/claim  (requires API key)
 # ---------------------------
 @app.post(
     "/tickets/{ticket_id}/claim",
@@ -303,13 +320,17 @@ def list_tickets(
     tags=["tickets"],
     summary="Claim a ticket for review"
 )
-def claim_ticket(ticket_id: str, payload: ClaimIn, db: Session = Depends(get_db)):
+def claim_ticket(
+    ticket_id: str,
+    payload: ClaimIn,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(get_api_key),
+):
     t = db.get(Ticket, ticket_id)
     if not t:
         raise HTTPException(status_code=404, detail="Ticket not found")
     if t.assigned_reviewer_id and t.assigned_reviewer_id != payload.reviewer_id:
         raise HTTPException(status_code=409, detail="Ticket already claimed by another reviewer")
-    # set status to in_review if still submitted/need_more_info
     prev_status = t.status
     if t.status in ("submitted", "need_more_info"):
         t.status = "in_review"
@@ -330,7 +351,7 @@ def claim_ticket(ticket_id: str, payload: ClaimIn, db: Session = Depends(get_db)
     )
 
 # ---------------------------
-# POST /tickets/{id}/unclaim
+# POST /tickets/{id}/unclaim  (requires API key)
 # ---------------------------
 @app.post(
     "/tickets/{ticket_id}/unclaim",
@@ -338,7 +359,12 @@ def claim_ticket(ticket_id: str, payload: ClaimIn, db: Session = Depends(get_db)
     tags=["tickets"],
     summary="Unclaim a ticket"
 )
-def unclaim_ticket(ticket_id: str, payload: ClaimIn, db: Session = Depends(get_db)):
+def unclaim_ticket(
+    ticket_id: str,
+    payload: ClaimIn,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(get_api_key),
+):
     t = db.get(Ticket, ticket_id)
     if not t:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -349,7 +375,6 @@ def unclaim_ticket(ticket_id: str, payload: ClaimIn, db: Session = Depends(get_d
 
     t.assigned_reviewer_id = None
     t.claimed_at = None
-    # keep status as is (still in_review) — queue logic can decide
     t.updated_at = datetime.utcnow()
     db.add(t)
     db.commit()
@@ -365,7 +390,7 @@ def unclaim_ticket(ticket_id: str, payload: ClaimIn, db: Session = Depends(get_d
     )
 
 # ---------------------------
-# PATCH /tickets/{id}/status  (enforce transitions)
+# PATCH /tickets/{id}/status  (requires API key, enforces transitions)
 # ---------------------------
 @app.patch(
     "/tickets/{ticket_id}/status",
@@ -373,7 +398,12 @@ def unclaim_ticket(ticket_id: str, payload: ClaimIn, db: Session = Depends(get_d
     tags=["tickets"],
     summary="Update ticket status (with transition rules)"
 )
-def update_status(ticket_id: str, payload: StatusUpdateIn, db: Session = Depends(get_db)):
+def update_status(
+    ticket_id: str,
+    payload: StatusUpdateIn,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(get_api_key),
+):
     t = db.get(Ticket, ticket_id)
     if not t:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -403,7 +433,7 @@ def update_status(ticket_id: str, payload: StatusUpdateIn, db: Session = Depends
     )
 
 # ---------------------------
-# POST /tickets/{id}/result
+# POST /tickets/{id}/result  (requires API key)
 # ---------------------------
 @app.post(
     "/tickets/{ticket_id}/result",
@@ -411,7 +441,12 @@ def update_status(ticket_id: str, payload: StatusUpdateIn, db: Session = Depends
     tags=["results"],
     summary="Create result for ticket (marks resolved)"
 )
-def create_result(ticket_id: str, payload: ResultIn, db: Session = Depends(get_db)):
+def create_result(
+    ticket_id: str,
+    payload: ResultIn,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(get_api_key),
+):
     t = db.get(Ticket, ticket_id)
     if not t:
         raise HTTPException(status_code=404, detail="Ticket not found")
