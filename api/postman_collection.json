@@ -1,0 +1,94 @@
+{
+  "info": {
+    "name": "Cosmetic Detective API (Local)",
+    "_postman_id": "c0s-m3t1c-d3t3ct1v3",
+    "description": "Local FastAPI + MinIO dev collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "http://127.0.0.1:8000/health", "protocol": "http", "host": ["127","0","0","1"], "port": "8000", "path": ["health"] }
+      }
+    },
+    {
+      "name": "Root",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "http://127.0.0.1:8000/", "protocol": "http", "host": ["127","0","0","1"], "port": "8000", "path": [""] }
+      }
+    },
+    {
+      "name": "Create Ticket",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "brand", "value": "Dior", "type": "text" },
+            { "key": "category", "value": "lipstick", "type": "text" },
+            { "key": "notes", "value": "Purchased in HK duty free", "type": "text" },
+            { "key": "user_id", "value": "kev", "type": "text" },
+            { "key": "images", "type": "file", "src": ["/Users/kev/Desktop/cosmetic_detective/pictures/1.jpeg"] }
+          ]
+        },
+        "url": { "raw": "http://127.0.0.1:8000/tickets", "protocol": "http", "host": ["127","0","0","1"], "port": "8000", "path": ["tickets"] }
+      }
+    },
+    {
+      "name": "Get Ticket by ID",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "http://127.0.0.1:8000/tickets/{{ticket_id}}", "protocol": "http", "host": ["127","0","0","1"], "port": "8000", "path": ["tickets", "{{ticket_id}}"] }
+      }
+    },
+    {
+      "name": "List Tickets",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://127.0.0.1:8000/tickets?user_id=kev&status=submitted",
+          "protocol": "http",
+          "host": ["127","0","0","1"],
+          "port": "8000",
+          "path": ["tickets"],
+          "query": [
+            { "key": "user_id", "value": "kev" },
+            { "key": "status", "value": "submitted" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Update Status",
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\"status\":\"in_review\"}" },
+        "url": { "raw": "http://127.0.0.1:8000/tickets/{{ticket_id}}/status", "protocol": "http", "host": ["127","0","0","1"], "port": "8000", "path": ["tickets","{{ticket_id}}","status"] }
+      }
+    },
+    {
+      "name": "Create Result",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\"verdict\":\"authentic\",\"rationale\":\"Packaging & serial align with genuine batch\",\"reviewer_id\":\"rev_001\"}" },
+        "url": { "raw": "http://127.0.0.1:8000/tickets/{{ticket_id}}/result", "protocol": "http", "host": ["127","0","0","1"], "port": "8000", "path": ["tickets","{{ticket_id}}","result"] }
+      }
+    },
+    {
+      "name": "Get Result",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "http://127.0.0.1:8000/tickets/{{ticket_id}}/result", "protocol": "http", "host": ["127","0","0","1"], "port": "8000", "path": ["tickets","{{ticket_id}}","result"] }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "ticket_id", "value": "REPLACE_WITH_REAL_ID" }
+  ]
+}

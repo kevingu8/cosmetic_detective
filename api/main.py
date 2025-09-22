@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional, Literal
 
 import boto3
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Query, Body
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import (
@@ -114,21 +114,27 @@ class ResultIn(BaseModel):
     rationale: Optional[str] = ""
     reviewer_id: Optional[str] = None
 
+
 # ---------------------------
 # Health routes
 # ---------------------------
-@app.get("/")
+@app.get("/", tags=["system"], summary="Root alive check")
 def root():
     return {"status": "ok"}
 
-@app.get("/health")
+@app.get("/health", tags=["system"], summary="Health check")
 def health_check():
     return {"status": "ok"}
 
 # ---------------------------
 # POST /tickets  (create with uploads)
 # ---------------------------
-@app.post("/tickets", response_model=TicketOut)
+@app.post(
+    "/tickets",
+    response_model=TicketOut,
+    tags=["tickets"],
+    summary="Create a ticket with images"
+)
 async def create_ticket(
     brand: str = Form(...),
     category: str = Form(...),
@@ -183,7 +189,12 @@ async def create_ticket(
 # ---------------------------
 # GET /tickets/{id}
 # ---------------------------
-@app.get("/tickets/{ticket_id}", response_model=TicketOut)
+@app.get(
+    "/tickets/{ticket_id}",
+    response_model=TicketOut,
+    tags=["tickets"],
+    summary="Get a ticket by ID"
+)
 def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
     t = db.get(Ticket, ticket_id)
     if not t:
@@ -197,11 +208,16 @@ def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
 # ---------------------------
 # GET /tickets  (list with optional filters)
 # ---------------------------
-@app.get("/tickets", response_model=List[TicketOut])
+@app.get(
+    "/tickets",
+    response_model=List[TicketOut],
+    tags=["tickets"],
+    summary="List tickets"
+)
 def list_tickets(
-    user_id: Optional[str] = Query(None),
-    status: Optional[StatusType] = Query(None),
-    limit: int = Query(50, ge=1, le=200),
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    status: Optional[StatusType] = Query(None, description="Filter by status"),
+    limit: int = Query(50, ge=1, le=200, description="Max items to return"),
     db: Session = Depends(get_db)
 ):
     q = db.query(Ticket)
@@ -223,7 +239,12 @@ def list_tickets(
 # ---------------------------
 # PATCH /tickets/{id}/status
 # ---------------------------
-@app.patch("/tickets/{ticket_id}/status", response_model=TicketOut)
+@app.patch(
+    "/tickets/{ticket_id}/status",
+    response_model=TicketOut,
+    tags=["tickets"],
+    summary="Update ticket status"
+)
 def update_status(ticket_id: str, payload: StatusUpdateIn, db: Session = Depends(get_db)):
     t = db.get(Ticket, ticket_id)
     if not t:
@@ -245,7 +266,12 @@ def update_status(ticket_id: str, payload: StatusUpdateIn, db: Session = Depends
 # ---------------------------
 # POST /tickets/{id}/result
 # ---------------------------
-@app.post("/tickets/{ticket_id}/result", response_model=ResultOut)
+@app.post(
+    "/tickets/{ticket_id}/result",
+    response_model=ResultOut,
+    tags=["results"],
+    summary="Create result for ticket"
+)
 def create_result(ticket_id: str, payload: ResultIn, db: Session = Depends(get_db)):
     t = db.get(Ticket, ticket_id)
     if not t:
@@ -277,7 +303,12 @@ def create_result(ticket_id: str, payload: ResultIn, db: Session = Depends(get_d
 # ---------------------------
 # GET /tickets/{id}/result
 # ---------------------------
-@app.get("/tickets/{ticket_id}/result", response_model=ResultOut)
+@app.get(
+    "/tickets/{ticket_id}/result",
+    response_model=ResultOut,
+    tags=["results"],
+    summary="Get result for ticket"
+)
 def get_result(ticket_id: str, db: Session = Depends(get_db)):
     t = db.get(Ticket, ticket_id)
     if not t:
