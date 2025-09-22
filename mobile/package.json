@@ -10,12 +10,14 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "@types/react": "~18.2.79",
     "axios": "^1.7.2",
-    "expo": "~51.0.0",
-    "expo-image-picker": "~15.1.0",
-    "react": "18.2.0",
-    "react-native": "0.74.5",
-    "typescript": "~5.3.3"
+    "expo": "^54.0.9",
+    "expo-image-picker": "~17.0.8",
+    "react": "19.1.0",
+    "react-native": "0.81.4"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.10",
+    "typescript": "~5.9.2"
   }
 }
