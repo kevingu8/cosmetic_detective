@@ -6,4 +6,4 @@ uvicorn main:app --reload --port 8000
 
 run mobile app: 
 cd /Users/kev/Desktop/cosmetic_detective/mobile
-npm start
+npx expo start (-c if to start fresh)

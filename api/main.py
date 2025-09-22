@@ -1,17 +1,29 @@
 import uuid
 import json
+import os
 from datetime import datetime
 from typing import List, Optional, Literal
 
 import boto3
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Query, Security
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security.api_key import APIKeyHeader
-from pydantic import BaseModel, Field
-from sqlalchemy import (
-    create_engine, Column, String, DateTime, Text, Integer, ForeignKey
+from dotenv import load_dotenv
+from fastapi import (
+    FastAPI, UploadFile, File, Form, HTTPException,
+    Depends, Query, Header
 )
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from sqlalchemy import create_engine, Column, String, DateTime, Text, Integer, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship
+
+# ---------------------------
+# Env & config
+# ---------------------------
+load_dotenv()
+
+API_KEY = os.getenv("API_KEY")  # must be set in .env
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://127.0.0.1:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "admin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "password123")
 
 # ---------------------------
 # FastAPI app
@@ -25,32 +37,41 @@ app.add_middleware(
         "http://127.0.0.1:19006",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-    ],  # tighten further in prod
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ---------------------------
-# Simple API-key auth (Day 5 placeholder)
+# Simple API-key auth (explicit 401s)
 # ---------------------------
-API_KEY = "supersecret123"  # TODO: move to env var
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
-
-def get_api_key(api_key_header_value: str = Security(api_key_header)):
-    if api_key_header_value != API_KEY:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    return api_key_header_value
+def require_api_key(x_api_key: Optional[str] = Header(default=None)):
+    if not API_KEY:
+        raise HTTPException(status_code=500, detail="Server misconfigured: API_KEY not set")
+    if x_api_key is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing API Key",
+            headers={"WWW-Authenticate": "ApiKey"}
+        )
+    if x_api_key != API_KEY:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API Key",
+            headers={"WWW-Authenticate": "ApiKey"}
+        )
+    return True
 
 # ---------------------------
 # MinIO / S3 client setup
 # ---------------------------
 s3_client = boto3.client(
     "s3",
-    endpoint_url="http://127.0.0.1:9000",
-    aws_access_key_id="admin",
-    aws_secret_access_key="password123",
-    region_name="us-east-1"
+    endpoint_url=MINIO_ENDPOINT,
+    aws_access_key_id=MINIO_ACCESS_KEY,
+    aws_secret_access_key=MINIO_SECRET_KEY,
+    region_name="us-east-1",
 )
 BUCKET_NAME = "tickets"
 
@@ -171,13 +192,23 @@ class EventOut(BaseModel):
 # ---------------------------
 # Helpers
 # ---------------------------
-def record_event(db: Session, ticket_id: str, kind: str, actor_id: Optional[str] = None,
-                 from_status: Optional[str] = None, to_status: Optional[str] = None,
-                 note: Optional[str] = None):
+def record_event(
+    db: Session,
+    ticket_id: str,
+    kind: str,
+    actor_id: Optional[str] = None,
+    from_status: Optional[str] = None,
+    to_status: Optional[str] = None,
+    note: Optional[str] = None,
+):
     e = TicketEvent(
-        ticket_id=ticket_id, kind=kind, actor_id=actor_id,
-        from_status=from_status, to_status=to_status,
-        at=datetime.utcnow(), note=note
+        ticket_id=ticket_id,
+        kind=kind,
+        actor_id=actor_id,
+        from_status=from_status,
+        to_status=to_status,
+        at=datetime.utcnow(),
+        note=note,
     )
     db.add(e)
     db.commit()
@@ -223,7 +254,7 @@ async def create_ticket(
             s3_client.upload_fileobj(img.file, BUCKET_NAME, key)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-        url = f"http://127.0.0.1:9000/{BUCKET_NAME}/{key}"
+        url = f"{MINIO_ENDPOINT}/{BUCKET_NAME}/{key}".replace(":9000", ":9000")  # keep as-is for local
         image_urls.append(url)
 
     now = datetime.utcnow()
@@ -324,7 +355,7 @@ def claim_ticket(
     ticket_id: str,
     payload: ClaimIn,
     db: Session = Depends(get_db),
-    api_key: str = Depends(get_api_key),
+    _=Depends(require_api_key),
 ):
     t = db.get(Ticket, ticket_id)
     if not t:
@@ -363,7 +394,7 @@ def unclaim_ticket(
     ticket_id: str,
     payload: ClaimIn,
     db: Session = Depends(get_db),
-    api_key: str = Depends(get_api_key),
+    _=Depends(require_api_key),
 ):
     t = db.get(Ticket, ticket_id)
     if not t:
@@ -402,7 +433,7 @@ def update_status(
     ticket_id: str,
     payload: StatusUpdateIn,
     db: Session = Depends(get_db),
-    api_key: str = Depends(get_api_key),
+    _=Depends(require_api_key),
 ):
     t = db.get(Ticket, ticket_id)
     if not t:
@@ -445,7 +476,7 @@ def create_result(
     ticket_id: str,
     payload: ResultIn,
     db: Session = Depends(get_db),
-    api_key: str = Depends(get_api_key),
+    _=Depends(require_api_key),
 ):
     t = db.get(Ticket, ticket_id)
     if not t:
