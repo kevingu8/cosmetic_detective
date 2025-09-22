@@ -8,7 +8,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Que
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import (
-    create_engine, Column, String, DateTime, Text, Integer, ForeignKey
+    create_engine, Column, String, DateTime, Text, Integer, ForeignKey, Boolean
 )
 from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship
 
@@ -19,7 +19,7 @@ app = FastAPI(title="Cosmetic Detective API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten later
+    allow_origins=["http://localhost:19006", "http://localhost:3000", "http://127.0.0.1:3000", "http://127.0.0.1:19006", "*"],  # tighten later
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,10 +30,10 @@ app.add_middleware(
 # ---------------------------
 s3_client = boto3.client(
     "s3",
-    endpoint_url="http://127.0.0.1:9000",  # MinIO API
-    aws_access_key_id="admin",             # match docker run env
-    aws_secret_access_key="password123",   # match docker run env
-    region_name="us-east-1"                # dummy region
+    endpoint_url="http://127.0.0.1:9000",
+    aws_access_key_id="admin",
+    aws_secret_access_key="password123",
+    region_name="us-east-1"
 )
 BUCKET_NAME = "tickets"
 
@@ -48,16 +48,19 @@ Base = declarative_base()
 class Ticket(Base):
     __tablename__ = "tickets"
     id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, index=True, nullable=True)  # optional until auth is wired
+    user_id = Column(String, index=True, nullable=True)  # filled later when auth is wired
     brand = Column(String, nullable=False)
     category = Column(String, nullable=False)
     notes = Column(Text, nullable=True)
     status = Column(String, nullable=False, index=True)  # submitted | in_review | resolved | need_more_info | rejected
-    image_urls_json = Column(Text, nullable=False)       # store list as JSON text
+    image_urls_json = Column(Text, nullable=False)       # JSON array of strings
+    assigned_reviewer_id = Column(String, index=True, nullable=True)
+    claimed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
 
     result = relationship("Result", uselist=False, back_populates="ticket", cascade="all, delete-orphan")
+    events = relationship("TicketEvent", back_populates="ticket", cascade="all, delete-orphan")
 
 class Result(Base):
     __tablename__ = "results"
@@ -69,6 +72,19 @@ class Result(Base):
     reviewed_at = Column(DateTime, nullable=False)
 
     ticket = relationship("Ticket", back_populates="result")
+
+class TicketEvent(Base):
+    __tablename__ = "ticket_events"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticket_id = Column(String, ForeignKey("tickets.id"), index=True, nullable=False)
+    kind = Column(String, nullable=False)  # created | status_changed | claimed | unclaimed | result_added
+    actor_id = Column(String, nullable=True)  # reviewer/user who did it
+    from_status = Column(String, nullable=True)
+    to_status = Column(String, nullable=True)
+    at = Column(DateTime, nullable=False)
+    note = Column(Text, nullable=True)
+
+    ticket = relationship("Ticket", back_populates="events")
 
 Base.metadata.create_all(bind=engine)
 
@@ -85,6 +101,14 @@ def get_db() -> Session:
 StatusType = Literal["submitted", "in_review", "resolved", "need_more_info", "rejected"]
 VerdictType = Literal["authentic", "inauthentic", "undetermined"]
 
+ALLOWED_TRANSITIONS = {
+    "submitted": {"in_review", "rejected", "need_more_info"},
+    "in_review": {"resolved", "rejected", "need_more_info"},
+    "need_more_info": {"in_review", "rejected"},
+    "rejected": set(),   # terminal
+    "resolved": set(),   # terminal
+}
+
 class TicketOut(BaseModel):
     ticket_id: str = Field(alias="id")
     user_id: Optional[str] = None
@@ -93,9 +117,10 @@ class TicketOut(BaseModel):
     notes: Optional[str] = ""
     images: List[str]
     status: StatusType
+    assigned_reviewer_id: Optional[str] = None
+    claimed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
-
     class Config:
         populate_by_name = True
 
@@ -114,6 +139,31 @@ class ResultIn(BaseModel):
     rationale: Optional[str] = ""
     reviewer_id: Optional[str] = None
 
+class ClaimIn(BaseModel):
+    reviewer_id: str
+
+class EventOut(BaseModel):
+    id: int
+    kind: str
+    actor_id: Optional[str]
+    from_status: Optional[str]
+    to_status: Optional[str]
+    at: datetime
+    note: Optional[str]
+
+# ---------------------------
+# Helpers
+# ---------------------------
+def record_event(db: Session, ticket_id: str, kind: str, actor_id: Optional[str] = None,
+                 from_status: Optional[str] = None, to_status: Optional[str] = None,
+                 note: Optional[str] = None):
+    e = TicketEvent(
+        ticket_id=ticket_id, kind=kind, actor_id=actor_id,
+        from_status=from_status, to_status=to_status,
+        at=datetime.utcnow(), note=note
+    )
+    db.add(e)
+    db.commit()
 
 # ---------------------------
 # Health routes
@@ -149,7 +199,6 @@ async def create_ticket(
     ticket_id = str(uuid.uuid4())
     image_urls: List[str] = []
 
-    # upload each image to MinIO
     for img in images:
         filename = img.filename or "image.jpg"
         key = f"{ticket_id}/{filename}"
@@ -169,6 +218,8 @@ async def create_ticket(
         notes=notes,
         status="submitted",
         image_urls_json=json.dumps(image_urls),
+        assigned_reviewer_id=None,
+        claimed_at=None,
         created_at=now,
         updated_at=now,
     )
@@ -176,14 +227,13 @@ async def create_ticket(
     db.commit()
     db.refresh(t)
 
+    record_event(db, ticket_id, "created", actor_id=user_id, to_status="submitted")
+
     return TicketOut(
-        id=t.id,
-        user_id=t.user_id,
-        brand=t.brand,
-        category=t.category,
-        notes=t.notes,
-        images=json.loads(t.image_urls_json),
-        status=t.status, created_at=t.created_at, updated_at=t.updated_at
+        id=t.id, user_id=t.user_id, brand=t.brand, category=t.category, notes=t.notes,
+        images=json.loads(t.image_urls_json), status=t.status,
+        assigned_reviewer_id=t.assigned_reviewer_id, claimed_at=t.claimed_at,
+        created_at=t.created_at, updated_at=t.updated_at
     )
 
 # ---------------------------
@@ -202,6 +252,7 @@ def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
     return TicketOut(
         id=t.id, user_id=t.user_id, brand=t.brand, category=t.category, notes=t.notes,
         images=json.loads(t.image_urls_json), status=t.status,
+        assigned_reviewer_id=t.assigned_reviewer_id, claimed_at=t.claimed_at,
         created_at=t.created_at, updated_at=t.updated_at
     )
 
@@ -217,6 +268,8 @@ def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
 def list_tickets(
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
     status: Optional[StatusType] = Query(None, description="Filter by status"),
+    unassigned: Optional[bool] = Query(None, description="Only those with no assigned reviewer"),
+    reviewer_id: Optional[str] = Query(None, description="Filter by assigned reviewer"),
     limit: int = Query(50, ge=1, le=200, description="Max items to return"),
     db: Session = Depends(get_db)
 ):
@@ -225,6 +278,10 @@ def list_tickets(
         q = q.filter(Ticket.user_id == user_id)
     if status:
         q = q.filter(Ticket.status == status)
+    if unassigned is True:
+        q = q.filter(Ticket.assigned_reviewer_id.is_(None))
+    if reviewer_id:
+        q = q.filter(Ticket.assigned_reviewer_id == reviewer_id)
     q = q.order_by(Ticket.created_at.desc()).limit(limit)
 
     items = []
@@ -232,34 +289,116 @@ def list_tickets(
         items.append(TicketOut(
             id=t.id, user_id=t.user_id, brand=t.brand, category=t.category, notes=t.notes,
             images=json.loads(t.image_urls_json), status=t.status,
+            assigned_reviewer_id=t.assigned_reviewer_id, claimed_at=t.claimed_at,
             created_at=t.created_at, updated_at=t.updated_at
         ))
     return items
 
 # ---------------------------
-# PATCH /tickets/{id}/status
+# POST /tickets/{id}/claim
+# ---------------------------
+@app.post(
+    "/tickets/{ticket_id}/claim",
+    response_model=TicketOut,
+    tags=["tickets"],
+    summary="Claim a ticket for review"
+)
+def claim_ticket(ticket_id: str, payload: ClaimIn, db: Session = Depends(get_db)):
+    t = db.get(Ticket, ticket_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if t.assigned_reviewer_id and t.assigned_reviewer_id != payload.reviewer_id:
+        raise HTTPException(status_code=409, detail="Ticket already claimed by another reviewer")
+    # set status to in_review if still submitted/need_more_info
+    prev_status = t.status
+    if t.status in ("submitted", "need_more_info"):
+        t.status = "in_review"
+    t.assigned_reviewer_id = payload.reviewer_id
+    t.claimed_at = datetime.utcnow()
+    t.updated_at = datetime.utcnow()
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+
+    record_event(db, ticket_id, "claimed", actor_id=payload.reviewer_id, from_status=prev_status, to_status=t.status)
+
+    return TicketOut(
+        id=t.id, user_id=t.user_id, brand=t.brand, category=t.category, notes=t.notes,
+        images=json.loads(t.image_urls_json), status=t.status,
+        assigned_reviewer_id=t.assigned_reviewer_id, claimed_at=t.claimed_at,
+        created_at=t.created_at, updated_at=t.updated_at
+    )
+
+# ---------------------------
+# POST /tickets/{id}/unclaim
+# ---------------------------
+@app.post(
+    "/tickets/{ticket_id}/unclaim",
+    response_model=TicketOut,
+    tags=["tickets"],
+    summary="Unclaim a ticket"
+)
+def unclaim_ticket(ticket_id: str, payload: ClaimIn, db: Session = Depends(get_db)):
+    t = db.get(Ticket, ticket_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if not t.assigned_reviewer_id:
+        raise HTTPException(status_code=400, detail="Ticket is not claimed")
+    if t.assigned_reviewer_id != payload.reviewer_id:
+        raise HTTPException(status_code=403, detail="Only the assigned reviewer can unclaim")
+
+    t.assigned_reviewer_id = None
+    t.claimed_at = None
+    # keep status as is (still in_review) — queue logic can decide
+    t.updated_at = datetime.utcnow()
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+
+    record_event(db, ticket_id, "unclaimed", actor_id=payload.reviewer_id)
+
+    return TicketOut(
+        id=t.id, user_id=t.user_id, brand=t.brand, category=t.category, notes=t.notes,
+        images=json.loads(t.image_urls_json), status=t.status,
+        assigned_reviewer_id=t.assigned_reviewer_id, claimed_at=t.claimed_at,
+        created_at=t.created_at, updated_at=t.updated_at
+    )
+
+# ---------------------------
+# PATCH /tickets/{id}/status  (enforce transitions)
 # ---------------------------
 @app.patch(
     "/tickets/{ticket_id}/status",
     response_model=TicketOut,
     tags=["tickets"],
-    summary="Update ticket status"
+    summary="Update ticket status (with transition rules)"
 )
 def update_status(ticket_id: str, payload: StatusUpdateIn, db: Session = Depends(get_db)):
     t = db.get(Ticket, ticket_id)
     if not t:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
-    # (Optional) enforce allowed transitions here
-    t.status = payload.status
+    from_status = t.status
+    to_status = payload.status
+
+    if to_status not in ALLOWED_TRANSITIONS.get(from_status, set()):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Illegal transition: {from_status} → {to_status}"
+        )
+
+    t.status = to_status
     t.updated_at = datetime.utcnow()
     db.add(t)
     db.commit()
     db.refresh(t)
 
+    record_event(db, ticket_id, "status_changed", from_status=from_status, to_status=to_status)
+
     return TicketOut(
         id=t.id, user_id=t.user_id, brand=t.brand, category=t.category, notes=t.notes,
         images=json.loads(t.image_urls_json), status=t.status,
+        assigned_reviewer_id=t.assigned_reviewer_id, claimed_at=t.claimed_at,
         created_at=t.created_at, updated_at=t.updated_at
     )
 
@@ -270,7 +409,7 @@ def update_status(ticket_id: str, payload: StatusUpdateIn, db: Session = Depends
     "/tickets/{ticket_id}/result",
     response_model=ResultOut,
     tags=["results"],
-    summary="Create result for ticket"
+    summary="Create result for ticket (marks resolved)"
 )
 def create_result(ticket_id: str, payload: ResultIn, db: Session = Depends(get_db)):
     t = db.get(Ticket, ticket_id)
@@ -287,13 +426,15 @@ def create_result(ticket_id: str, payload: ResultIn, db: Session = Depends(get_d
         reviewer_id=payload.reviewer_id,
         reviewed_at=datetime.utcnow(),
     )
-    # when a result is posted, mark ticket resolved (simple rule)
+    prev_status = t.status
     t.status = "resolved"
     t.updated_at = datetime.utcnow()
 
     db.add_all([r, t])
     db.commit()
     db.refresh(r)
+
+    record_event(db, ticket_id, "result_added", actor_id=payload.reviewer_id, from_status=prev_status, to_status="resolved")
 
     return ResultOut(
         ticket_id=r.ticket_id, verdict=r.verdict, rationale=r.rationale,
@@ -320,3 +461,30 @@ def get_result(ticket_id: str, db: Session = Depends(get_db)):
         ticket_id=r.ticket_id, verdict=r.verdict, rationale=r.rationale,
         reviewer_id=r.reviewer_id, reviewed_at=r.reviewed_at
     )
+
+# ---------------------------
+# GET /tickets/{id}/events
+# ---------------------------
+@app.get(
+    "/tickets/{ticket_id}/events",
+    response_model=List[EventOut],
+    tags=["tickets"],
+    summary="List audit events for a ticket"
+)
+def list_events(ticket_id: str, db: Session = Depends(get_db)):
+    t = db.get(Ticket, ticket_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    events = (
+        db.query(TicketEvent)
+          .filter(TicketEvent.ticket_id == ticket_id)
+          .order_by(TicketEvent.at.asc())
+          .all()
+    )
+    return [
+        EventOut(
+            id=e.id, kind=e.kind, actor_id=e.actor_id,
+            from_status=e.from_status, to_status=e.to_status,
+            at=e.at, note=e.note
+        ) for e in events
+    ]
